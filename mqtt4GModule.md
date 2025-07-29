@@ -1,5 +1,10 @@
 ## **嵌入式DTU项目对接文档**
 
+### 0.修改
+##### 250729 2143f594 
+#### 新增：公共指令通道 (用于设备广播)
+为支持对所有在线设备进行广播操作（如在线状态盘点），新增了一个所有设备都会订阅的公共指令主题。
+
 ### 1. 项目概述
 
 本项目是一个多功能物联网DTU（数据传输单元），其核心功能分为两大块：
@@ -7,7 +12,7 @@
 1.  **MQTT管理与遥测通道**: 设备通过连接到标准MQTT代理（Broker），实现远程监控、配置管理、日志上报和固件升级（OTA）。这是与后台管理平台交互的主要通道。
 2.  **TCP透明传输通道**: 设备作为一个TCP客户端，与一个指定的数据服务器建立长连接，并执行一套自定义的握手协议。握手成功后，设备进入“透明传输”模式，作为其本地串口（UART）与远程TCP服务器之间的数据桥梁。
 
-后端系统需要实现 **MQTT Broker** 的客户端逻辑以管理设备，并可选地提供一个 **TCP服务器** 来接收和发送透传数据。
+后端系统需要实现 **MQTT Broker** 的客户端逻辑以管理设备，并连接到一个 **特定的TCP服务器** 来接收和发送透传数据。
 
 ### 2. 核心功能
 
@@ -119,11 +124,32 @@
 | **`set_config`** | 设置设备的新配置。设备会保存配置并重启生效 | `{"dtu_reconnect_delay_ms": 10000, "mqtt_heartbeat_interval_s": 30}` | `{"status": "Saved and rebooting"}` |
 | **`get_status`** | 请求设备立即上报一次详细的心跳状态 | `null` 或 `{}` | 无直接响应，设备会向`heartbeat`主题发布一条详细心跳 |
 | **`get_act`** | 获取DTU通道的累计收发字节数和文件系统信息 | `null` 或 `{}` | `{"TX": 1024, "RX": 2048, "fs_free_size": 50000}` |
-| **`download_ota`**| 命令设备从指定URL下载OTA固件包（URL目前在代码中硬编码，后续可改为从payload获取） | `null` 或 `{}` | `{"status": "OTA download started"}` (或失败信息) |
+| **`download_ota`**| 命令设备从 **指定的URL** 下载OTA固件包。URL通过`payload`提供。 | `{"url": "http://your-server.com/firmware/new_version.bin"}` | `{"status": "Download started"}` (或失败信息) |
 | **`apply_ota`** | 命令设备应用已下载的固件并重启 | `null` 或 `{}` | `{"status": "Applying OTA update and rebooting"}` |
 | **`log`** | 动态控制日志输出 | `{"serial": true}` | `{"status": "Success"}` |
 
 ---
+
+##### **3.1.4.1. 公共指令通道**
+
+*   **订阅Topic**: `myiot/dtu/public/command`
+*   **QoS**: 设备以QoS 1订阅
+*   **用途**: 向所有在线设备下发广播指令。
+*   **通用Payload格式 (JSON)**:
+    ```json
+    {
+        "action": "action_name",
+        "command_id": "optional-broadcast-cmd-id", // 公共指令的ID是可选的
+        "payload": { ... }
+    }
+    ```
+
+**支持的 `action` 列表:**
+
+| `action` | 描述 | `payload` 示例 | 设备行为 |
+| :--- | :--- | :--- | :--- |
+| **`report_status`** | 请求所有在线设备立即上报一次详细的心跳状态。主要用于平台快速盘点当前在线的设备列表。 | `null` 或 `{}` | 设备收到指令后，会立即向其各自的 `myiot/dtu/{device_id}/status/heartbeat` 主题发布一条详细的心跳包（与 `get_status` 指令效果相同）。 |
+
 
 #### 3.2. TCP 透明传输通道
 
